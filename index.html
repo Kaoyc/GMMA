@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GMMA - Smart Search</title>
+    <title>GMMA - Dual Axis Overlay</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -32,7 +32,9 @@
             Bell: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>,
             X: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 18 18"/></svg>,
             Alert: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
-            Wifi: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+            Activity: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
+            Wifi: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>,
+            Chart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         };
 
         const calculateEMA = (data, period) => {
@@ -51,11 +53,16 @@
         };
 
         const App = () => {
-            const chartContainerRef = useRef(null);
-            const chartRef = useRef(null);
+            const mainChartContainerRef = useRef(null);
+            const subChartContainerRef = useRef(null);
+            const mainChartRef = useRef(null);
+            const subChartRef = useRef(null);
+            
             const [symbol, setSymbol] = useState('2330.TW'); 
             const [inputVal, setInputVal] = useState('2330');
             const [currentValues, setCurrentValues] = useState(null);
+            // 儲存副圖兩個指標的數值
+            const [subChartValues, setSubChartValues] = useState({ gmmacd: null, gap: null });
             const [watchlist, setWatchlist] = useState([]);
             const [signal, setSignal] = useState({ type: 'NEUTRAL', text: '初始化' });
             const [status, setStatus] = useState('IDLE');
@@ -69,7 +76,6 @@
                 if (savedList) setWatchlist(JSON.parse(savedList));
             }, []);
 
-            // 核心：單一股票抓取邏輯 (內部函數)
             const fetchSingleSymbol = async (symToTry) => {
                 const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symToTry}?range=2y&interval=1d&events=history`;
                 const proxies = [
@@ -81,16 +87,15 @@
                     try {
                         const response = await fetch(proxy.url);
                         if (!response.ok) {
-                            if (response.status === 404) return null; // 找不到
-                            continue; // 其他錯誤換下一個 proxy
+                            if (response.status === 404) return null;
+                            continue;
                         }
                         const json = await response.json();
                         const result = json.chart?.result?.[0];
-                        if (!result) return null; // 結構錯誤當作找不到
+                        if (!result) return null;
                         
                         const quote = result.indicators.quote[0];
                         const timestamps = result.timestamp;
-                        
                         if (!timestamps || !quote || !quote.close) return null;
 
                         const formattedData = [];
@@ -106,24 +111,17 @@
                             });
                         }
                         if (formattedData.length === 0) return null;
-                        
-                        return formattedData; // 成功
-                    } catch (err) {
-                        // console.warn(`Proxy fail for ${symToTry}: ${err.message}`);
-                    }
+                        return formattedData;
+                    } catch (err) {}
                 }
-                return null; // 所有 proxy 都失敗
+                return null;
             };
 
-            // 智慧抓取：自動嘗試 .TW 和 .TWO
             const smartFetch = async (inputSym) => {
                 setStatus('LOADING');
                 setErrorMsg('');
                 
                 let candidates = [inputSym];
-                
-                // 如果輸入的是純數字，自動產生候選清單
-                // 優先嘗試 .TW (上市)，失敗則嘗試 .TWO (上櫃)
                 if (/^\d{3,6}$/.test(inputSym)) {
                     candidates = [`${inputSym}.TW`, `${inputSym}.TWO`];
                 }
@@ -132,37 +130,37 @@
                     const data = await fetchSingleSymbol(sym);
                     if (data) {
                         setStatus('SUCCESS');
-                        // 更新目前顯示的 symbol 為正確的那個 (例如 user 輸入 8069, 自動變成 8069.TWO)
                         if (sym !== symbol) setSymbol(sym); 
                         return data;
                     }
                 }
 
                 setStatus('ERROR');
-                setErrorMsg('查無資料 (請確認代號)');
+                setErrorMsg('查無資料');
                 return null;
             };
 
             useEffect(() => {
-                if (!chartContainerRef.current || !window.LightweightCharts) return;
+                if (!mainChartContainerRef.current || !subChartContainerRef.current || !window.LightweightCharts) return;
                 const loadData = async () => {
                     const data = await smartFetch(symbol);
-                    if (data) initChart(data);
+                    if (data) initCharts(data);
                 };
                 loadData();
             }, [symbol]);
 
-            const initChart = (data) => {
-                if (!chartContainerRef.current) return;
-                if (chartRef.current) chartRef.current.remove();
-
+            const initCharts = (data) => {
                 const LWC = window.LightweightCharts;
-                const chart = LWC.createChart(chartContainerRef.current, {
+
+                // --- 1. Main Chart (Price & GMMA) ---
+                if (mainChartRef.current) mainChartRef.current.remove();
+                
+                const mainChart = LWC.createChart(mainChartContainerRef.current, {
                     layout: { background: { type: LWC.ColorType.Solid, color: '#ffffff' }, textColor: '#333' },
-                    width: chartContainerRef.current.clientWidth,
-                    height: 500,
+                    width: mainChartContainerRef.current.clientWidth,
+                    height: mainChartContainerRef.current.clientHeight,
                     grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
-                    crosshair: { mode: 1, vertLine: { labelVisible: true } },
+                    crosshair: { mode: 1 },
                     timeScale: { 
                         rightOffset: 5, barSpacing: 6, fixRightEdge: true, 
                         visible: true, timeVisible: false, secondsVisible: false, borderColor: '#e0e0e0',
@@ -170,53 +168,150 @@
                     localization: { locale: 'zh-TW', dateFormat: 'yyyy-MM-dd' },
                     rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true, borderColor: '#e0e0e0' },
                 });
-                chartRef.current = chart;
+                mainChartRef.current = mainChart;
 
-                const candleSeries = chart.addCandlestickSeries({
+                const candleSeries = mainChart.addCandlestickSeries({
                     upColor: '#ef5350', downColor: '#26a69a', 
                     borderVisible: false, wickUpColor: '#ef5350', wickDownColor: '#26a69a',
                     lastValueVisible: true, 
                 });
                 candleSeries.setData(data);
 
-                // GMMA
-                gmmaShortPeriods.forEach((p) => {
-                    const series = chart.addLineSeries({ 
-                        color: '#2e7d32', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false 
+                // 計算 GMMA
+                const emaStore = {};
+                [...gmmaShortPeriods, ...gmmaLongPeriods].forEach(p => {
+                    const isShort = gmmaShortPeriods.includes(p);
+                    const color = isShort ? '#2e7d32' : '#c62828';
+                    const series = mainChart.addLineSeries({ 
+                        color: color, lineWidth: 1, 
+                        priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false 
                     });
-                    series.setData(calculateEMA(data, p));
+                    const emaValues = calculateEMA(data, p);
+                    series.setData(emaValues);
+                    emaStore[p] = emaValues;
                 });
 
-                gmmaLongPeriods.forEach((p) => {
-                    const series = chart.addLineSeries({ 
-                        color: '#c62828', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false
-                    });
-                    series.setData(calculateEMA(data, p));
+                // --- 2. Sub Chart (Combined Overlay) ---
+                if (subChartRef.current) subChartRef.current.remove();
+
+                const subChart = LWC.createChart(subChartContainerRef.current, {
+                    layout: { background: { type: LWC.ColorType.Solid, color: '#ffffff' }, textColor: '#333' },
+                    width: subChartContainerRef.current.clientWidth,
+                    height: subChartContainerRef.current.clientHeight,
+                    grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
+                    crosshair: { mode: 1 },
+                    timeScale: { 
+                        rightOffset: 5, barSpacing: 6, fixRightEdge: true, 
+                        visible: true, timeVisible: false, secondsVisible: false, borderColor: '#e0e0e0',
+                    },
+                    localization: { locale: 'zh-TW', dateFormat: 'yyyy-MM-dd' },
+                    // 啟用雙軸：左軸給 Gap %，右軸給 GMMACD
+                    leftPriceScale: { visible: true, borderColor: '#e0e0e0' },
+                    rightPriceScale: { visible: true, borderColor: '#e0e0e0' },
+                });
+                subChartRef.current = subChart;
+
+                // A. GMMACD 柱狀圖 (右軸, 背景)
+                const gmmacdSeries = subChart.addHistogramSeries({
+                    priceScaleId: 'right', // 綁定右軸
+                    priceFormat: { type: 'volume' }, // 顯示純數值
+                    lastValueVisible: true,
                 });
 
-                const lastShorts = gmmaShortPeriods.map(p => calculateEMA(data, p).pop()?.value || 0);
-                const lastLongs = gmmaLongPeriods.map(p => calculateEMA(data, p).pop()?.value || 0);
-                
-                if (Math.min(...lastShorts) > Math.max(...lastLongs)) setSignal({ type: 'BULL', text: '多頭排列 🔥' });
-                else if (Math.max(...lastShorts) < Math.min(...lastLongs)) setSignal({ type: 'BEAR', text: '空頭排列 ❄️' });
-                else setSignal({ type: 'NEUTRAL', text: '震盪整理 ⚖️' });
-
-                chart.subscribeCrosshairMove((param) => {
-                    if (!param.time) { setCurrentValues(null); return; }
-                    const price = param.seriesData.get(candleSeries);
-                    if (price) setCurrentValues({ price });
+                // B. 乖離率折線 (左軸, 前景)
+                const gapSeries = subChart.addBaselineSeries({
+                    priceScaleId: 'left', // 綁定左軸
+                    baseValue: { type: 'price', price: 0 },
+                    topLineColor: '#ef5350',      
+                    topFillColor1: 'rgba(239, 83, 80, 0)', // 不填充，保持乾淨
+                    topFillColor2: 'rgba(239, 83, 80, 0)',
+                    bottomLineColor: '#26a69a',   
+                    bottomFillColor1: 'rgba(38, 166, 154, 0)', 
+                    bottomFillColor2: 'rgba(38, 166, 154, 0)',
+                    lineWidth: 2,
+                    lastValueVisible: true,
+                    priceFormat: { type: 'percent', precision: 2 },
                 });
-                
+
+                // 計算並填入數據
+                const gmmacdData = [];
+                const gapData = [];
+
+                for(let i = 0; i < data.length; i++) {
+                    const t = data[i].time;
+                    let sumShort = 0, sumLong = 0;
+                    let valid = true;
+
+                    for (let p of gmmaShortPeriods) { if (!emaStore[p][i]) { valid = false; break; } sumShort += emaStore[p][i].value; }
+                    for (let p of gmmaLongPeriods) { if (!emaStore[p][i]) { valid = false; break; } sumLong += emaStore[p][i].value; }
+
+                    if (valid) {
+                        const avgShort = sumShort / gmmaShortPeriods.length;
+                        const avgLong = sumLong / gmmaLongPeriods.length;
+                        const diff = avgShort - avgLong; // GMMACD
+                        const pct = (diff / data[i].close) * 100; // Gap %
+                        
+                        // GMMACD 柱狀圖顏色 (半透明)
+                        const histColor = diff >= 0 ? 'rgba(239, 83, 80, 0.4)' : 'rgba(38, 166, 154, 0.4)';
+                        
+                        gmmacdData.push({ time: t, value: diff, color: histColor });
+                        gapData.push({ time: t, value: pct });
+                    }
+                }
+                gmmacdSeries.setData(gmmacdData);
+                gapSeries.setData(gapData);
+
+                // --- 3. 連動與查價 ---
+                const mainTimeScale = mainChart.timeScale();
+                const subTimeScale = subChart.timeScale();
+
+                mainTimeScale.subscribeVisibleLogicalRangeChange(range => subTimeScale.setVisibleLogicalRange(range));
+                subTimeScale.subscribeVisibleLogicalRangeChange(range => mainTimeScale.setVisibleLogicalRange(range));
+
+                // 查價同步
+                mainChart.subscribeCrosshairMove(param => {
+                    if (param.time) {
+                        subChart.setCrosshairPosition(0, param.time, gapSeries);
+                        if (param.seriesData) {
+                            const price = param.seriesData.get(candleSeries);
+                            if (price) setCurrentValues({ price });
+                        }
+                    } else {
+                        setCurrentValues(null);
+                    }
+                });
+
+                subChart.subscribeCrosshairMove(param => {
+                    if (param.time) {
+                        mainChart.setCrosshairPosition(0, param.time, candleSeries);
+                        
+                        // 獲取副圖數值
+                        const gVal = param.seriesData.get(gmmacdSeries);
+                        const gapVal = param.seriesData.get(gapSeries);
+                        
+                        setSubChartValues({
+                            gmmacd: gVal ? gVal.value : null,
+                            gap: gapVal ? gapVal.value : null
+                        });
+                    } else {
+                        setSubChartValues({ gmmacd: null, gap: null });
+                    }
+                });
+
+                // 初始訊號
                 if (data.length > 0) {
+                    const lastShorts = gmmaShortPeriods.map(p => calculateEMA(data, p).pop()?.value || 0);
+                    const lastLongs = gmmaLongPeriods.map(p => calculateEMA(data, p).pop()?.value || 0);
+                    
+                    if (Math.min(...lastShorts) > Math.max(...lastLongs)) setSignal({ type: 'BULL', text: '多頭排列 🔥' });
+                    else if (Math.max(...lastShorts) < Math.min(...lastLongs)) setSignal({ type: 'BEAR', text: '空頭排列 ❄️' });
+                    else setSignal({ type: 'NEUTRAL', text: '震盪整理 ⚖️' });
+
                     const lastItem = data[data.length - 1];
                     const lastDate = new Date(lastItem.time);
                     const sixMonthsAgo = new Date(lastDate);
                     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-                    
-                    chart.timeScale().setVisibleRange({
-                        from: sixMonthsAgo.toISOString().split('T')[0],
-                        to: lastItem.time
-                    });
+                    mainChart.timeScale().setVisibleRange({ from: sixMonthsAgo.toISOString().split('T')[0], to: lastItem.time });
                 }
             };
 
@@ -229,18 +324,17 @@
             const handleSearch = (e) => {
                 e.preventDefault();
                 let cleanInput = inputVal.trim().toUpperCase();
-                // 這裡我們不加後綴，讓 smartFetch 去嘗試
                 setSymbol(cleanInput);
             };
 
             return (
                 <div className="flex flex-col h-screen overflow-hidden bg-slate-50">
-                    <header className="bg-white border-b px-4 py-3 flex items-center justify-between shadow-sm z-20">
+                    <header className="bg-white border-b px-4 py-3 flex items-center justify-between shadow-sm z-20 h-14">
                         <div className="flex items-center gap-2">
                             <div className="bg-purple-600 p-2 rounded-lg text-white"><Icons.TrendingUp /></div>
                             <div>
                                 <h1 className="text-lg font-bold leading-none">GMMA</h1>
-                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">SMART SEARCH</p>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">DUAL AXIS OVERLAY</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -255,39 +349,57 @@
                     </header>
 
                     <main className="flex flex-1 overflow-hidden p-2 md:p-4 gap-4 flex-col md:flex-row">
-                        <section className="flex-1 flex flex-col gap-4 min-h-0 relative">
-                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 flex flex-col relative overflow-hidden flex-1">
-                                <div className="flex justify-between items-center mb-2">
-                                    <h2 className="text-2xl font-black flex items-center gap-2">
+                        {/* 主圖表區塊 */}
+                        <section className="flex-1 flex flex-col gap-2 min-h-0 relative">
+                            {/* 上半部：主圖 (70%) */}
+                            <div className="bg-white rounded-t-xl shadow-sm border border-slate-200 border-b-0 p-3 flex flex-col relative overflow-hidden flex-[3]">
+                                <div className="flex justify-between items-center mb-1">
+                                    <h2 className="text-xl font-black flex items-center gap-2">
                                         {symbol}
-                                        {status === 'SUCCESS' && <span className="text-xs font-normal bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Icons.Wifi /> 已連線</span>}
+                                        {status === 'SUCCESS' && <span className="text-xs font-normal bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Icons.Wifi /></span>}
                                     </h2>
                                     <div className="flex gap-2 items-center">
-                                        {status === 'LOADING' && <span className="text-xs text-purple-500 animate-pulse font-bold">搜尋資料...</span>}
+                                        {status === 'LOADING' && <span className="text-xs text-purple-500 animate-pulse font-bold">載入中...</span>}
                                         <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${signal.type === 'BULL' ? 'bg-red-500' : signal.type === 'BEAR' ? 'bg-green-600' : 'bg-slate-400'}`}>{signal.text}</span>
                                     </div>
                                 </div>
-                                
                                 {status === 'ERROR' && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 z-10 p-4 text-center animate-bounce-in">
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 z-10 p-4 text-center">
                                         <div className="bg-red-50 p-4 rounded-full mb-2 text-red-500"><Icons.Alert /></div>
                                         <h3 className="text-lg font-bold text-slate-700">讀取失敗</h3>
-                                        <p className="text-sm text-red-500 mt-1 font-bold">{errorMsg}</p>
                                     </div>
                                 )}
+                                <div ref={mainChartContainerRef} className="flex-1 w-full" />
+                            </div>
 
-                                <div ref={chartContainerRef} className="flex-1 w-full" />
+                            {/* 下半部：副圖 (30%) - 雙軸疊加 */}
+                            <div className="bg-white rounded-b-xl shadow-sm border border-slate-200 p-3 flex flex-col relative overflow-hidden flex-[1]">
+                                <div className="flex items-center justify-between gap-2 mb-1 border-b border-slate-100 pb-1">
+                                    <div className="flex items-center gap-2">
+                                        <Icons.Chart />
+                                        <span className="text-xs font-bold text-slate-600">GMMACD & Gap%</span>
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <span className={`text-xs font-mono font-bold ${subChartValues.gap > 0 ? 'text-red-500' : (subChartValues.gap < 0 ? 'text-green-600' : 'text-slate-400')}`}>
+                                            Gap: {subChartValues.gap !== null ? subChartValues.gap.toFixed(2) + '%' : '-'}
+                                        </span>
+                                        <span className={`text-xs font-mono font-bold opacity-70 ${subChartValues.gmmacd > 0 ? 'text-red-500' : (subChartValues.gmmacd < 0 ? 'text-green-600' : 'text-slate-400')}`}>
+                                            MACD: {subChartValues.gmmacd !== null ? subChartValues.gmmacd.toFixed(2) : '-'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div ref={subChartContainerRef} className="flex-1 w-full" />
                             </div>
                             
-                            <div className="flex gap-2 overflow-x-auto pb-2 min-h-[40px]">
+                            <div className="flex gap-2 overflow-x-auto pb-2 min-h-[30px]">
                                 {watchlist.map(item => (
                                     <div key={item} className="relative group shrink-0">
                                         <button onClick={() => { setSymbol(item); setInputVal(item.replace(/\.TW(O)?/, '')); }} 
-                                            className={`px-3 py-1.5 rounded-lg border text-xs font-bold whitespace-nowrap ${symbol === item ? 'bg-purple-600 text-white border-purple-600' : 'bg-white border-slate-200'}`}>
+                                            className={`px-3 py-1 rounded-lg border text-xs font-bold whitespace-nowrap ${symbol === item ? 'bg-purple-600 text-white border-purple-600' : 'bg-white border-slate-200'}`}>
                                             {item}
                                         </button>
                                         <button onClick={(e) => { e.stopPropagation(); const nl = watchlist.filter(i=>i!==item); setWatchlist(nl); localStorage.setItem('vibe-stock-watchlist', JSON.stringify(nl)); }}
-                                            className="absolute -top-2 -right-1 bg-red-500 text-white rounded-full p-0.5 hidden group-hover:block hover:bg-red-600 shadow-sm"><Icons.X /></button>
+                                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hidden group-hover:block hover:bg-red-600 shadow-sm"><Icons.X /></button>
                                     </div>
                                 ))}
                             </div>
@@ -303,10 +415,10 @@
                                             <p className="text-2xl font-mono font-black text-slate-800">${currentValues.price?.close?.toFixed(2)}</p>
                                         </div>
                                         <div className="text-xs text-slate-500 leading-relaxed bg-blue-50 p-3 rounded">
-                                            <p className="font-bold text-blue-700 mb-1">💡 智慧搜尋</p>
+                                            <p className="font-bold text-blue-700 mb-1">💡 雙軸指標說明</p>
                                             <ul className="list-disc pl-4 mt-1 space-y-1">
-                                                <li>輸入數字 (如 8069) 系統會自動嘗試上市/上櫃。</li>
-                                                <li>輸入英文 (如 NVDA) 則查詢美股。</li>
+                                                <li><b>左軸 (實線)</b>：乖離率 %。<br/>紅多綠空，觀察趨勢強度。</li>
+                                                <li><b>右軸 (柱狀)</b>：GMMACD 值。<br/>半透明背景，顯示動能強弱。</li>
                                             </ul>
                                         </div>
                                     </div>
