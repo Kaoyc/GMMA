@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GMMA - 4 Charts Layout</title>
+    <title>GMMA - Live Data</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -16,6 +16,8 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
         .animate-bounce-in { animation: fadeIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        .spin-once { animation: spin 0.5s linear; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -35,7 +37,8 @@
             Activity: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
             Wifi: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>,
             Chart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
-            BarChart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+            BarChart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>,
+            Refresh: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
         };
 
         const calculateEMA = (data, period) => {
@@ -54,7 +57,6 @@
         };
 
         const App = () => {
-            // Refs for all 4 charts
             const mainChartContainerRef = useRef(null);
             const volChartContainerRef = useRef(null);
             const gmmacdChartContainerRef = useRef(null);
@@ -70,6 +72,7 @@
             const [signal, setSignal] = useState({ type: 'NEUTRAL', text: '初始化' });
             const [status, setStatus] = useState('IDLE');
             const [errorMsg, setErrorMsg] = useState('');
+            const [refreshKey, setRefreshKey] = useState(0); // 用於觸發刷新
 
             const gmmaShortPeriods = [3, 5, 8, 10, 12, 15];
             const gmmaLongPeriods = [30, 35, 40, 45, 50, 60];
@@ -80,7 +83,10 @@
             }, []);
 
             const fetchSingleSymbol = async (symToTry) => {
-                const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symToTry}?range=2y&interval=1d&events=history`;
+                // 加入時間戳記避免 Proxy 快取 (_t=Date.now())
+                const timestamp = Date.now();
+                const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symToTry}?range=2y&interval=1d&events=history&_t=${timestamp}`;
+                
                 const proxies = [
                     { name: 'Proxy A', url: `https://corsproxy.io/?${encodeURIComponent(targetUrl)}` },
                     { name: 'Proxy B', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}` }
@@ -151,7 +157,7 @@
                     if (data) initCharts(data);
                 };
                 loadData();
-            }, [symbol]);
+            }, [symbol, refreshKey]); // 加入 refreshKey 依賴
 
             const initCharts = (data) => {
                 const LWC = window.LightweightCharts;
@@ -166,7 +172,6 @@
                     localization: { locale: 'zh-TW', dateFormat: 'yyyy-MM-dd' },
                 };
 
-                // Helper to create chart
                 const createChart = (ref, height) => {
                     if (ref.current) ref.current.innerHTML = '';
                     const chart = LWC.createChart(ref.current, {
@@ -210,7 +215,7 @@
                 volSeries.setData(data.map(d => ({
                     time: d.time,
                     value: d.volume,
-                    color: d.close >= d.open ? '#ef5350' : '#26a69a' // 台股紅漲綠跌
+                    color: d.close >= d.open ? '#ef5350' : '#26a69a'
                 })));
 
                 // 3. GMMACD Chart
@@ -229,7 +234,6 @@
                     priceFormat: { type: 'percent', precision: 2 },
                 });
 
-                // 計算指標數據
                 const gmmacdData = [];
                 const gapData = [];
 
@@ -256,10 +260,8 @@
                 gmmacdSeries.setData(gmmacdData);
                 gapSeries.setData(gapData);
 
-                // --- Sync Logic (四圖連動) ---
+                // --- Sync Logic ---
                 const charts = [mainChart, volChart, gmmacdChart, gapChart];
-                
-                // Time Scale Sync
                 charts.forEach(c1 => {
                     c1.timeScale().subscribeVisibleLogicalRangeChange(range => {
                         charts.forEach(c2 => {
@@ -268,7 +270,6 @@
                     });
                 });
 
-                // Crosshair Sync
                 charts.forEach(c => {
                     c.subscribeCrosshairMove(param => {
                         const t = param.time;
@@ -279,12 +280,9 @@
                             }
                         });
 
-                        // Update Values Panel
                         if (t) {
                             if (c === mainChart && param.seriesData) setCurrentValues({ price: param.seriesData.get(candleSeries) });
                             
-                            // Find values from arrays (simplified)
-                            // In real production, use Map for O(1) lookup
                             const volItem = data.find(d => d.time === t);
                             const macdItem = gmmacdData.find(d => d.time === t);
                             const gapItem = gapData.find(d => d.time === t);
@@ -301,7 +299,7 @@
                     });
                 });
 
-                // Initial Range
+                // Initial Range (6 months)
                 if (data.length > 0) {
                     const lastItem = data[data.length - 1];
                     const lastDate = new Date(lastItem.time);
@@ -310,7 +308,6 @@
                     mainChart.timeScale().setVisibleRange({ from: sixMonthsAgo.toISOString().split('T')[0], to: lastItem.time });
                 }
 
-                // Store refs
                 chartRefs.current = { main: mainChart, vol: volChart, gmmacd: gmmacdChart, gap: gapChart };
             };
 
@@ -326,6 +323,11 @@
                 setSymbol(cleanInput);
             };
 
+            // 觸發刷新
+            const handleRefresh = () => {
+                setRefreshKey(prev => prev + 1);
+            };
+
             return (
                 <div className="flex flex-col h-screen overflow-hidden bg-slate-50">
                     <header className="bg-white border-b px-4 py-3 flex items-center justify-between shadow-sm z-20 h-14 shrink-0">
@@ -333,7 +335,7 @@
                             <div className="bg-purple-600 p-2 rounded-lg text-white"><Icons.TrendingUp /></div>
                             <div>
                                 <h1 className="text-lg font-bold leading-none">GMMA</h1>
-                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">4-CHART SYSTEM</p>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">LIVE 4-CHART</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -343,6 +345,10 @@
                                     placeholder="代號 (如 2330)" />
                                 <div className="absolute left-2.5 top-2 text-slate-400"><Icons.Search /></div>
                             </form>
+                            {/* 刷新按鈕 */}
+                            <button onClick={handleRefresh} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="刷新即時數據">
+                                <div className={status === 'LOADING' ? 'spin-once' : ''}><Icons.Refresh /></div>
+                            </button>
                             <button onClick={toggleWatchlist} className="p-2 rounded-lg bg-yellow-50 text-yellow-600"><Icons.Star fill={watchlist.includes(symbol) ? "#ca8a04" : "none"} /></button>
                         </div>
                     </header>
@@ -393,7 +399,6 @@
                                 <div ref={gapChartContainerRef} className="flex-1 w-full" />
                             </div>
                             
-                            {/* Watchlist Strip */}
                             <div className="flex gap-2 overflow-x-auto pb-2 pt-2 min-h-[40px]">
                                 {watchlist.map(item => (
                                     <div key={item} className="relative group shrink-0">
@@ -438,11 +443,8 @@
                                         </div>
 
                                         <div className="text-[10px] text-slate-400 bg-slate-50 p-2 rounded leading-relaxed mt-4">
-                                            <p className="font-bold text-slate-600 mb-1">圖表指南：</p>
-                                            1. <b>K線</b>: 價格走勢<br/>
-                                            2. <b>Volume</b>: 成交量 (紅漲綠跌)<br/>
-                                            3. <b>GMMACD</b>: 多空動能 (柱狀)<br/>
-                                            4. <b>Gap%</b>: 趨勢乖離 (折線)
+                                            <p className="font-bold text-slate-600 mb-1">💡 即時數據</p>
+                                            盤中請點擊上方 <Icons.Refresh /> 按鈕來強制取得最新報價 (可能略有延遲)。
                                         </div>
                                     </div>
                                 ) : <div className="text-center py-10 opacity-40 text-xs">請移動滑鼠至圖表</div>}
