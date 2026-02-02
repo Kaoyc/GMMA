@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vibe GMMA - 2 Year Data</title>
+    <title>GMMA - Smart Search</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -60,7 +60,6 @@
             const [signal, setSignal] = useState({ type: 'NEUTRAL', text: '初始化' });
             const [status, setStatus] = useState('IDLE');
             const [errorMsg, setErrorMsg] = useState('');
-            const [twSuffix, setTwSuffix] = useState('.TW');
 
             const gmmaShortPeriods = [3, 5, 8, 10, 12, 15];
             const gmmaLongPeriods = [30, 35, 40, 45, 50, 60];
@@ -70,12 +69,9 @@
                 if (savedList) setWatchlist(JSON.parse(savedList));
             }, []);
 
-            const fetchYahooData = async (sym) => {
-                setStatus('LOADING');
-                setErrorMsg('');
-                
-                // 改為抓取 2 年 (range=2y) 資料
-                const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=2y&interval=1d&events=history`;
+            // 核心：單一股票抓取邏輯 (內部函數)
+            const fetchSingleSymbol = async (symToTry) => {
+                const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symToTry}?range=2y&interval=1d&events=history`;
                 const proxies = [
                     { name: 'Proxy A', url: `https://corsproxy.io/?${encodeURIComponent(targetUrl)}` },
                     { name: 'Proxy B', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}` }
@@ -84,14 +80,18 @@
                 for (let proxy of proxies) {
                     try {
                         const response = await fetch(proxy.url);
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        if (!response.ok) {
+                            if (response.status === 404) return null; // 找不到
+                            continue; // 其他錯誤換下一個 proxy
+                        }
                         const json = await response.json();
-                        
                         const result = json.chart?.result?.[0];
-                        if (!result) throw new Error('查無資料');
+                        if (!result) return null; // 結構錯誤當作找不到
                         
                         const quote = result.indicators.quote[0];
                         const timestamps = result.timestamp;
+                        
+                        if (!timestamps || !quote || !quote.close) return null;
 
                         const formattedData = [];
                         for (let i = 0; i < timestamps.length; i++) {
@@ -105,22 +105,48 @@
                                 close: Number(quote.close[i].toFixed(2)),
                             });
                         }
-                        if (formattedData.length === 0) throw new Error('無效數據');
-                        setStatus('SUCCESS');
-                        return formattedData;
+                        if (formattedData.length === 0) return null;
+                        
+                        return formattedData; // 成功
                     } catch (err) {
-                        console.warn(`Proxy fail: ${err.message}`);
+                        // console.warn(`Proxy fail for ${symToTry}: ${err.message}`);
                     }
                 }
+                return null; // 所有 proxy 都失敗
+            };
+
+            // 智慧抓取：自動嘗試 .TW 和 .TWO
+            const smartFetch = async (inputSym) => {
+                setStatus('LOADING');
+                setErrorMsg('');
+                
+                let candidates = [inputSym];
+                
+                // 如果輸入的是純數字，自動產生候選清單
+                // 優先嘗試 .TW (上市)，失敗則嘗試 .TWO (上櫃)
+                if (/^\d{3,6}$/.test(inputSym)) {
+                    candidates = [`${inputSym}.TW`, `${inputSym}.TWO`];
+                }
+
+                for (let sym of candidates) {
+                    const data = await fetchSingleSymbol(sym);
+                    if (data) {
+                        setStatus('SUCCESS');
+                        // 更新目前顯示的 symbol 為正確的那個 (例如 user 輸入 8069, 自動變成 8069.TWO)
+                        if (sym !== symbol) setSymbol(sym); 
+                        return data;
+                    }
+                }
+
                 setStatus('ERROR');
-                setErrorMsg('無法連接數據源，請稍後再試或檢查網路');
+                setErrorMsg('查無資料 (請確認代號)');
                 return null;
             };
 
             useEffect(() => {
                 if (!chartContainerRef.current || !window.LightweightCharts) return;
                 const loadData = async () => {
-                    const data = await fetchYahooData(symbol);
+                    const data = await smartFetch(symbol);
                     if (data) initChart(data);
                 };
                 loadData();
@@ -136,34 +162,16 @@
                     width: chartContainerRef.current.clientWidth,
                     height: 500,
                     grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
-                    crosshair: { 
-                        mode: 1, // Magnet mode
-                        vertLine: {
-                            labelVisible: true, 
-                        }
-                    },
+                    crosshair: { mode: 1, vertLine: { labelVisible: true } },
                     timeScale: { 
-                        rightOffset: 5, 
-                        barSpacing: 6,
-                        fixRightEdge: true, 
-                        visible: true,      
-                        timeVisible: false, 
-                        secondsVisible: false,
-                        borderColor: '#e0e0e0',
+                        rightOffset: 5, barSpacing: 6, fixRightEdge: true, 
+                        visible: true, timeVisible: false, secondsVisible: false, borderColor: '#e0e0e0',
                     },
-                    localization: {
-                        locale: 'zh-TW',       
-                        dateFormat: 'yyyy-MM-dd', 
-                    },
-                    rightPriceScale: {
-                        scaleMargins: { top: 0.1, bottom: 0.1 },
-                        visible: true,
-                        borderColor: '#e0e0e0',
-                    },
+                    localization: { locale: 'zh-TW', dateFormat: 'yyyy-MM-dd' },
+                    rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true, borderColor: '#e0e0e0' },
                 });
                 chartRef.current = chart;
 
-                // K線：紅漲綠跌
                 const candleSeries = chart.addCandlestickSeries({
                     upColor: '#ef5350', downColor: '#26a69a', 
                     borderVisible: false, wickUpColor: '#ef5350', wickDownColor: '#26a69a',
@@ -171,33 +179,21 @@
                 });
                 candleSeries.setData(data);
 
-                // --- 繪製 GMMA ---
-                
-                // 短期組 (綠色系)
+                // GMMA
                 gmmaShortPeriods.forEach((p) => {
                     const series = chart.addLineSeries({ 
-                        color: '#2e7d32', 
-                        lineWidth: 1, 
-                        priceLineVisible: false, 
-                        lastValueVisible: true, // 顯示右側標籤
-                        crosshairMarkerVisible: false 
+                        color: '#2e7d32', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false 
                     });
                     series.setData(calculateEMA(data, p));
                 });
 
-                // 長期組 (紅色系)
                 gmmaLongPeriods.forEach((p) => {
                     const series = chart.addLineSeries({ 
-                        color: '#c62828', 
-                        lineWidth: 1, 
-                        priceLineVisible: false, 
-                        lastValueVisible: true, // 顯示右側標籤
-                        crosshairMarkerVisible: false
+                        color: '#c62828', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false
                     });
                     series.setData(calculateEMA(data, p));
                 });
 
-                // 訊號判斷
                 const lastShorts = gmmaShortPeriods.map(p => calculateEMA(data, p).pop()?.value || 0);
                 const lastLongs = gmmaLongPeriods.map(p => calculateEMA(data, p).pop()?.value || 0);
                 
@@ -205,26 +201,21 @@
                 else if (Math.max(...lastShorts) < Math.min(...lastLongs)) setSignal({ type: 'BEAR', text: '空頭排列 ❄️' });
                 else setSignal({ type: 'NEUTRAL', text: '震盪整理 ⚖️' });
 
-                // 查價
                 chart.subscribeCrosshairMove((param) => {
                     if (!param.time) { setCurrentValues(null); return; }
                     const price = param.seriesData.get(candleSeries);
                     if (price) setCurrentValues({ price });
                 });
                 
-                // --- 設定預設顯示範圍：半年 (6個月) ---
                 if (data.length > 0) {
                     const lastItem = data[data.length - 1];
                     const lastDate = new Date(lastItem.time);
                     const sixMonthsAgo = new Date(lastDate);
                     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
                     
-                    const fromStr = sixMonthsAgo.toISOString().split('T')[0];
-                    const toStr = lastItem.time;
-
                     chart.timeScale().setVisibleRange({
-                        from: fromStr,
-                        to: toStr
+                        from: sixMonthsAgo.toISOString().split('T')[0],
+                        to: lastItem.time
                     });
                 }
             };
@@ -238,11 +229,8 @@
             const handleSearch = (e) => {
                 e.preventDefault();
                 let cleanInput = inputVal.trim().toUpperCase();
-                if (/^\d{3,6}$/.test(cleanInput)) {
-                    setSymbol(cleanInput + twSuffix);
-                } else {
-                    setSymbol(cleanInput);
-                }
+                // 這裡我們不加後綴，讓 smartFetch 去嘗試
+                setSymbol(cleanInput);
             };
 
             return (
@@ -251,22 +239,16 @@
                         <div className="flex items-center gap-2">
                             <div className="bg-purple-600 p-2 rounded-lg text-white"><Icons.TrendingUp /></div>
                             <div>
-                                <h1 className="text-lg font-bold leading-none">Vibe Stock</h1>
-                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">2 YEAR DATA</p>
+                                <h1 className="text-lg font-bold leading-none">GMMA</h1>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">SMART SEARCH</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <form onSubmit={handleSearch} className="relative flex items-center">
-                                <button type="button" 
-                                    onClick={() => setTwSuffix(s => s === '.TW' ? '.TWO' : '.TW')}
-                                    className={`mr-1 px-2 py-1.5 text-xs font-bold rounded border transition-colors ${twSuffix === '.TW' ? 'bg-slate-100 text-slate-600' : 'bg-orange-50 text-orange-600 border-orange-200'}`}
-                                    title="點擊切換：上市(.TW) / 上櫃(.TWO)">
-                                    {twSuffix === '.TW' ? '上市' : '上櫃'}
-                                </button>
                                 <input type="text" value={inputVal} onChange={(e) => setInputVal(e.target.value)}
-                                    className="pl-8 pr-3 py-1.5 bg-slate-100 border-none rounded-lg focus:ring-2 focus:ring-purple-500 w-32 md:w-40 text-sm font-bold placeholder:text-xs" 
-                                    placeholder="代號 (2330)" />
-                                <div className="absolute left-[3.2rem] top-2 text-slate-400"><Icons.Search /></div>
+                                    className="pl-8 pr-3 py-1.5 bg-slate-100 border-none rounded-lg focus:ring-2 focus:ring-purple-500 w-32 md:w-48 text-sm font-bold placeholder:text-xs" 
+                                    placeholder="代號 (如 2330)" />
+                                <div className="absolute left-2.5 top-2 text-slate-400"><Icons.Search /></div>
                             </form>
                             <button onClick={toggleWatchlist} className="p-2 rounded-lg bg-yellow-50 text-yellow-600"><Icons.Star fill={watchlist.includes(symbol) ? "#ca8a04" : "none"} /></button>
                         </div>
@@ -281,7 +263,7 @@
                                         {status === 'SUCCESS' && <span className="text-xs font-normal bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Icons.Wifi /> 已連線</span>}
                                     </h2>
                                     <div className="flex gap-2 items-center">
-                                        {status === 'LOADING' && <span className="text-xs text-purple-500 animate-pulse font-bold">載入中...</span>}
+                                        {status === 'LOADING' && <span className="text-xs text-purple-500 animate-pulse font-bold">搜尋資料...</span>}
                                         <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${signal.type === 'BULL' ? 'bg-red-500' : signal.type === 'BEAR' ? 'bg-green-600' : 'bg-slate-400'}`}>{signal.text}</span>
                                     </div>
                                 </div>
@@ -321,11 +303,10 @@
                                             <p className="text-2xl font-mono font-black text-slate-800">${currentValues.price?.close?.toFixed(2)}</p>
                                         </div>
                                         <div className="text-xs text-slate-500 leading-relaxed bg-blue-50 p-3 rounded">
-                                            <p className="font-bold text-blue-700 mb-1">💡 數據說明</p>
+                                            <p className="font-bold text-blue-700 mb-1">💡 智慧搜尋</p>
                                             <ul className="list-disc pl-4 mt-1 space-y-1">
-                                                <li><b>資料範圍</b>：已設定為 2 年。</li>
-                                                <li><b>預設顯示</b>：自動縮放至最近 6 個月。</li>
-                                                <li><b>日期顯示</b>：已開啟 YYYY-MM-DD 格式。</li>
+                                                <li>輸入數字 (如 8069) 系統會自動嘗試上市/上櫃。</li>
+                                                <li>輸入英文 (如 NVDA) 則查詢美股。</li>
                                             </ul>
                                         </div>
                                     </div>
