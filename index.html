@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GMMA - Dual Axis Overlay</title>
+    <title>GMMA - 4 Charts Layout</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -34,7 +34,8 @@
             Alert: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
             Activity: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
             Wifi: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>,
-            Chart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Chart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
+            BarChart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
         };
 
         const calculateEMA = (data, period) => {
@@ -53,16 +54,18 @@
         };
 
         const App = () => {
+            // Refs for all 4 charts
             const mainChartContainerRef = useRef(null);
-            const subChartContainerRef = useRef(null);
-            const mainChartRef = useRef(null);
-            const subChartRef = useRef(null);
+            const volChartContainerRef = useRef(null);
+            const gmmacdChartContainerRef = useRef(null);
+            const gapChartContainerRef = useRef(null);
+            
+            const chartRefs = useRef({ main: null, vol: null, gmmacd: null, gap: null });
             
             const [symbol, setSymbol] = useState('2330.TW'); 
             const [inputVal, setInputVal] = useState('2330');
             const [currentValues, setCurrentValues] = useState(null);
-            // 儲存副圖兩個指標的數值
-            const [subChartValues, setSubChartValues] = useState({ gmmacd: null, gap: null });
+            const [indicatorValues, setIndicatorValues] = useState({ vol: null, gmmacd: null, gap: null });
             const [watchlist, setWatchlist] = useState([]);
             const [signal, setSignal] = useState({ type: 'NEUTRAL', text: '初始化' });
             const [status, setStatus] = useState('IDLE');
@@ -108,6 +111,7 @@
                                 high: Number(quote.high[i].toFixed(2)),
                                 low: Number(quote.low[i].toFixed(2)),
                                 close: Number(quote.close[i].toFixed(2)),
+                                volume: Number(quote.volume[i] || 0),
                             });
                         }
                         if (formattedData.length === 0) return null;
@@ -141,7 +145,7 @@
             };
 
             useEffect(() => {
-                if (!mainChartContainerRef.current || !subChartContainerRef.current || !window.LightweightCharts) return;
+                if (!mainChartContainerRef.current) return;
                 const loadData = async () => {
                     const data = await smartFetch(symbol);
                     if (data) initCharts(data);
@@ -151,25 +155,30 @@
 
             const initCharts = (data) => {
                 const LWC = window.LightweightCharts;
-
-                // --- 1. Main Chart (Price & GMMA) ---
-                if (mainChartRef.current) mainChartRef.current.remove();
-                
-                const mainChart = LWC.createChart(mainChartContainerRef.current, {
+                const commonOptions = {
                     layout: { background: { type: LWC.ColorType.Solid, color: '#ffffff' }, textColor: '#333' },
-                    width: mainChartContainerRef.current.clientWidth,
-                    height: mainChartContainerRef.current.clientHeight,
                     grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
-                    crosshair: { mode: 1 },
+                    crosshair: { mode: 1, vertLine: { labelVisible: true } },
                     timeScale: { 
                         rightOffset: 5, barSpacing: 6, fixRightEdge: true, 
-                        visible: true, timeVisible: false, secondsVisible: false, borderColor: '#e0e0e0',
+                        visible: true, borderColor: '#e0e0e0', timeVisible: false, secondsVisible: false 
                     },
                     localization: { locale: 'zh-TW', dateFormat: 'yyyy-MM-dd' },
-                    rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true, borderColor: '#e0e0e0' },
-                });
-                mainChartRef.current = mainChart;
+                };
 
+                // Helper to create chart
+                const createChart = (ref, height) => {
+                    if (ref.current) ref.current.innerHTML = '';
+                    const chart = LWC.createChart(ref.current, {
+                        ...commonOptions,
+                        width: ref.current.clientWidth,
+                        height: height,
+                    });
+                    return chart;
+                };
+
+                // 1. Main Chart
+                const mainChart = createChart(mainChartContainerRef, mainChartContainerRef.current.clientHeight);
                 const candleSeries = mainChart.addCandlestickSeries({
                     upColor: '#ef5350', downColor: '#26a69a', 
                     borderVisible: false, wickUpColor: '#ef5350', wickDownColor: '#26a69a',
@@ -177,7 +186,7 @@
                 });
                 candleSeries.setData(data);
 
-                // 計算 GMMA
+                // GMMA
                 const emaStore = {};
                 [...gmmaShortPeriods, ...gmmaLongPeriods].forEach(p => {
                     const isShort = gmmaShortPeriods.includes(p);
@@ -191,128 +200,118 @@
                     emaStore[p] = emaValues;
                 });
 
-                // --- 2. Sub Chart (Combined Overlay) ---
-                if (subChartRef.current) subChartRef.current.remove();
-
-                const subChart = LWC.createChart(subChartContainerRef.current, {
-                    layout: { background: { type: LWC.ColorType.Solid, color: '#ffffff' }, textColor: '#333' },
-                    width: subChartContainerRef.current.clientWidth,
-                    height: subChartContainerRef.current.clientHeight,
-                    grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
-                    crosshair: { mode: 1 },
-                    timeScale: { 
-                        rightOffset: 5, barSpacing: 6, fixRightEdge: true, 
-                        visible: true, timeVisible: false, secondsVisible: false, borderColor: '#e0e0e0',
-                    },
-                    localization: { locale: 'zh-TW', dateFormat: 'yyyy-MM-dd' },
-                    // 啟用雙軸：左軸給 Gap %，右軸給 GMMACD
-                    leftPriceScale: { visible: true, borderColor: '#e0e0e0' },
-                    rightPriceScale: { visible: true, borderColor: '#e0e0e0' },
+                // 2. Volume Chart
+                const volChart = createChart(volChartContainerRef, volChartContainerRef.current.clientHeight);
+                const volSeries = volChart.addHistogramSeries({
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: '', 
+                    lastValueVisible: true,
                 });
-                subChartRef.current = subChart;
+                volSeries.setData(data.map(d => ({
+                    time: d.time,
+                    value: d.volume,
+                    color: d.close >= d.open ? '#ef5350' : '#26a69a' // 台股紅漲綠跌
+                })));
 
-                // A. GMMACD 柱狀圖 (右軸, 背景)
-                const gmmacdSeries = subChart.addHistogramSeries({
-                    priceScaleId: 'right', // 綁定右軸
-                    priceFormat: { type: 'volume' }, // 顯示純數值
+                // 3. GMMACD Chart
+                const gmmacdChart = createChart(gmmacdChartContainerRef, gmmacdChartContainerRef.current.clientHeight);
+                const gmmacdSeries = gmmacdChart.addHistogramSeries({
                     lastValueVisible: true,
                 });
 
-                // B. 乖離率折線 (左軸, 前景)
-                const gapSeries = subChart.addBaselineSeries({
-                    priceScaleId: 'left', // 綁定左軸
+                // 4. Gap Chart
+                const gapChart = createChart(gapChartContainerRef, gapChartContainerRef.current.clientHeight);
+                const gapSeries = gapChart.addBaselineSeries({
                     baseValue: { type: 'price', price: 0 },
-                    topLineColor: '#ef5350',      
-                    topFillColor1: 'rgba(239, 83, 80, 0)', // 不填充，保持乾淨
-                    topFillColor2: 'rgba(239, 83, 80, 0)',
-                    bottomLineColor: '#26a69a',   
-                    bottomFillColor1: 'rgba(38, 166, 154, 0)', 
-                    bottomFillColor2: 'rgba(38, 166, 154, 0)',
-                    lineWidth: 2,
+                    topLineColor: '#ef5350', topFillColor1: 'rgba(239, 83, 80, 0.28)', topFillColor2: 'rgba(239, 83, 80, 0.05)',
+                    bottomLineColor: '#26a69a', bottomFillColor1: 'rgba(38, 166, 154, 0.05)', bottomFillColor2: 'rgba(38, 166, 154, 0.28)',
                     lastValueVisible: true,
                     priceFormat: { type: 'percent', precision: 2 },
                 });
 
-                // 計算並填入數據
+                // 計算指標數據
                 const gmmacdData = [];
                 const gapData = [];
 
                 for(let i = 0; i < data.length; i++) {
-                    const t = data[i].time;
                     let sumShort = 0, sumLong = 0;
                     let valid = true;
-
                     for (let p of gmmaShortPeriods) { if (!emaStore[p][i]) { valid = false; break; } sumShort += emaStore[p][i].value; }
                     for (let p of gmmaLongPeriods) { if (!emaStore[p][i]) { valid = false; break; } sumLong += emaStore[p][i].value; }
 
                     if (valid) {
                         const avgShort = sumShort / gmmaShortPeriods.length;
                         const avgLong = sumLong / gmmaLongPeriods.length;
-                        const diff = avgShort - avgLong; // GMMACD
-                        const pct = (diff / data[i].close) * 100; // Gap %
+                        const diff = avgShort - avgLong;
+                        const pct = (diff / data[i].close) * 100;
                         
-                        // GMMACD 柱狀圖顏色 (半透明)
-                        const histColor = diff >= 0 ? 'rgba(239, 83, 80, 0.4)' : 'rgba(38, 166, 154, 0.4)';
-                        
-                        gmmacdData.push({ time: t, value: diff, color: histColor });
-                        gapData.push({ time: t, value: pct });
+                        gmmacdData.push({ 
+                            time: data[i].time, 
+                            value: diff, 
+                            color: diff >= 0 ? '#ef5350' : '#26a69a' 
+                        });
+                        gapData.push({ time: data[i].time, value: pct });
                     }
                 }
                 gmmacdSeries.setData(gmmacdData);
                 gapSeries.setData(gapData);
 
-                // --- 3. 連動與查價 ---
-                const mainTimeScale = mainChart.timeScale();
-                const subTimeScale = subChart.timeScale();
-
-                mainTimeScale.subscribeVisibleLogicalRangeChange(range => subTimeScale.setVisibleLogicalRange(range));
-                subTimeScale.subscribeVisibleLogicalRangeChange(range => mainTimeScale.setVisibleLogicalRange(range));
-
-                // 查價同步
-                mainChart.subscribeCrosshairMove(param => {
-                    if (param.time) {
-                        subChart.setCrosshairPosition(0, param.time, gapSeries);
-                        if (param.seriesData) {
-                            const price = param.seriesData.get(candleSeries);
-                            if (price) setCurrentValues({ price });
-                        }
-                    } else {
-                        setCurrentValues(null);
-                    }
-                });
-
-                subChart.subscribeCrosshairMove(param => {
-                    if (param.time) {
-                        mainChart.setCrosshairPosition(0, param.time, candleSeries);
-                        
-                        // 獲取副圖數值
-                        const gVal = param.seriesData.get(gmmacdSeries);
-                        const gapVal = param.seriesData.get(gapSeries);
-                        
-                        setSubChartValues({
-                            gmmacd: gVal ? gVal.value : null,
-                            gap: gapVal ? gapVal.value : null
+                // --- Sync Logic (四圖連動) ---
+                const charts = [mainChart, volChart, gmmacdChart, gapChart];
+                
+                // Time Scale Sync
+                charts.forEach(c1 => {
+                    c1.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                        charts.forEach(c2 => {
+                            if (c1 !== c2) c2.timeScale().setVisibleLogicalRange(range);
                         });
-                    } else {
-                        setSubChartValues({ gmmacd: null, gap: null });
-                    }
+                    });
                 });
 
-                // 初始訊號
-                if (data.length > 0) {
-                    const lastShorts = gmmaShortPeriods.map(p => calculateEMA(data, p).pop()?.value || 0);
-                    const lastLongs = gmmaLongPeriods.map(p => calculateEMA(data, p).pop()?.value || 0);
-                    
-                    if (Math.min(...lastShorts) > Math.max(...lastLongs)) setSignal({ type: 'BULL', text: '多頭排列 🔥' });
-                    else if (Math.max(...lastShorts) < Math.min(...lastLongs)) setSignal({ type: 'BEAR', text: '空頭排列 ❄️' });
-                    else setSignal({ type: 'NEUTRAL', text: '震盪整理 ⚖️' });
+                // Crosshair Sync
+                charts.forEach(c => {
+                    c.subscribeCrosshairMove(param => {
+                        const t = param.time;
+                        charts.forEach(other => {
+                            if (c !== other) {
+                                if (t) other.setCrosshairPosition(0, t, other === mainChart ? candleSeries : (other === volChart ? volSeries : (other === gmmacdChart ? gmmacdSeries : gapSeries)));
+                                else other.clearCrosshairPosition();
+                            }
+                        });
 
+                        // Update Values Panel
+                        if (t) {
+                            if (c === mainChart && param.seriesData) setCurrentValues({ price: param.seriesData.get(candleSeries) });
+                            
+                            // Find values from arrays (simplified)
+                            // In real production, use Map for O(1) lookup
+                            const volItem = data.find(d => d.time === t);
+                            const macdItem = gmmacdData.find(d => d.time === t);
+                            const gapItem = gapData.find(d => d.time === t);
+
+                            setIndicatorValues({
+                                vol: volItem?.volume,
+                                gmmacd: macdItem?.value,
+                                gap: gapItem?.value
+                            });
+                        } else {
+                            setCurrentValues(null);
+                            setIndicatorValues({ vol: null, gmmacd: null, gap: null });
+                        }
+                    });
+                });
+
+                // Initial Range
+                if (data.length > 0) {
                     const lastItem = data[data.length - 1];
                     const lastDate = new Date(lastItem.time);
                     const sixMonthsAgo = new Date(lastDate);
                     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
                     mainChart.timeScale().setVisibleRange({ from: sixMonthsAgo.toISOString().split('T')[0], to: lastItem.time });
                 }
+
+                // Store refs
+                chartRefs.current = { main: mainChart, vol: volChart, gmmacd: gmmacdChart, gap: gapChart };
             };
 
             const toggleWatchlist = () => {
@@ -329,12 +328,12 @@
 
             return (
                 <div className="flex flex-col h-screen overflow-hidden bg-slate-50">
-                    <header className="bg-white border-b px-4 py-3 flex items-center justify-between shadow-sm z-20 h-14">
+                    <header className="bg-white border-b px-4 py-3 flex items-center justify-between shadow-sm z-20 h-14 shrink-0">
                         <div className="flex items-center gap-2">
                             <div className="bg-purple-600 p-2 rounded-lg text-white"><Icons.TrendingUp /></div>
                             <div>
                                 <h1 className="text-lg font-bold leading-none">GMMA</h1>
-                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">DUAL AXIS OVERLAY</p>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">4-CHART SYSTEM</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -349,49 +348,53 @@
                     </header>
 
                     <main className="flex flex-1 overflow-hidden p-2 md:p-4 gap-4 flex-col md:flex-row">
-                        {/* 主圖表區塊 */}
-                        <section className="flex-1 flex flex-col gap-2 min-h-0 relative">
-                            {/* 上半部：主圖 (70%) */}
-                            <div className="bg-white rounded-t-xl shadow-sm border border-slate-200 border-b-0 p-3 flex flex-col relative overflow-hidden flex-[3]">
-                                <div className="flex justify-between items-center mb-1">
-                                    <h2 className="text-xl font-black flex items-center gap-2">
-                                        {symbol}
-                                        {status === 'SUCCESS' && <span className="text-xs font-normal bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Icons.Wifi /></span>}
+                        <section className="flex-1 flex flex-col gap-1 min-h-0 relative">
+                            {/* 1. Main Chart (50%) */}
+                            <div className="bg-white rounded-t-xl shadow-sm border border-slate-200 border-b-0 p-2 flex flex-col relative overflow-hidden flex-[4]">
+                                <div className="flex justify-between items-center mb-1 px-1">
+                                    <h2 className="text-lg font-black flex items-center gap-2">
+                                        {symbol} {status === 'SUCCESS' && <Icons.Wifi />}
                                     </h2>
-                                    <div className="flex gap-2 items-center">
-                                        {status === 'LOADING' && <span className="text-xs text-purple-500 animate-pulse font-bold">載入中...</span>}
-                                        <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${signal.type === 'BULL' ? 'bg-red-500' : signal.type === 'BEAR' ? 'bg-green-600' : 'bg-slate-400'}`}>{signal.text}</span>
-                                    </div>
+                                    {currentValues && (
+                                        <span className="font-mono font-bold text-slate-700">${currentValues.price?.close?.toFixed(2)}</span>
+                                    )}
                                 </div>
-                                {status === 'ERROR' && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 z-10 p-4 text-center">
-                                        <div className="bg-red-50 p-4 rounded-full mb-2 text-red-500"><Icons.Alert /></div>
-                                        <h3 className="text-lg font-bold text-slate-700">讀取失敗</h3>
-                                    </div>
-                                )}
                                 <div ref={mainChartContainerRef} className="flex-1 w-full" />
                             </div>
 
-                            {/* 下半部：副圖 (30%) - 雙軸疊加 */}
-                            <div className="bg-white rounded-b-xl shadow-sm border border-slate-200 p-3 flex flex-col relative overflow-hidden flex-[1]">
-                                <div className="flex items-center justify-between gap-2 mb-1 border-b border-slate-100 pb-1">
-                                    <div className="flex items-center gap-2">
-                                        <Icons.Chart />
-                                        <span className="text-xs font-bold text-slate-600">GMMACD & Gap%</span>
-                                    </div>
-                                    <div className="flex gap-4">
-                                        <span className={`text-xs font-mono font-bold ${subChartValues.gap > 0 ? 'text-red-500' : (subChartValues.gap < 0 ? 'text-green-600' : 'text-slate-400')}`}>
-                                            Gap: {subChartValues.gap !== null ? subChartValues.gap.toFixed(2) + '%' : '-'}
-                                        </span>
-                                        <span className={`text-xs font-mono font-bold opacity-70 ${subChartValues.gmmacd > 0 ? 'text-red-500' : (subChartValues.gmmacd < 0 ? 'text-green-600' : 'text-slate-400')}`}>
-                                            MACD: {subChartValues.gmmacd !== null ? subChartValues.gmmacd.toFixed(2) : '-'}
-                                        </span>
-                                    </div>
+                            {/* 2. Volume Chart (16%) */}
+                            <div className="bg-white border-x border-slate-200 p-2 flex flex-col relative overflow-hidden flex-[1]">
+                                <div className="flex justify-between items-center px-1 mb-1">
+                                    <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500"><Icons.BarChart /> Volume</div>
+                                    <span className="text-[10px] font-mono font-bold">{indicatorValues.vol ? (indicatorValues.vol / 1000).toFixed(0) + 'K' : '-'}</span>
                                 </div>
-                                <div ref={subChartContainerRef} className="flex-1 w-full" />
+                                <div ref={volChartContainerRef} className="flex-1 w-full" />
+                            </div>
+
+                            {/* 3. GMMACD Chart (16%) */}
+                            <div className="bg-white border-x border-slate-200 p-2 flex flex-col relative overflow-hidden flex-[1]">
+                                <div className="flex justify-between items-center px-1 mb-1">
+                                    <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500"><Icons.Chart /> GMMACD</div>
+                                    <span className={`text-[10px] font-mono font-bold ${indicatorValues.gmmacd > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                        {indicatorValues.gmmacd !== null ? indicatorValues.gmmacd.toFixed(2) : '-'}
+                                    </span>
+                                </div>
+                                <div ref={gmmacdChartContainerRef} className="flex-1 w-full" />
+                            </div>
+
+                            {/* 4. Gap Chart (16%) */}
+                            <div className="bg-white rounded-b-xl shadow-sm border border-slate-200 border-t-0 p-2 flex flex-col relative overflow-hidden flex-[1]">
+                                <div className="flex justify-between items-center px-1 mb-1">
+                                    <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500"><Icons.Activity /> Gap %</div>
+                                    <span className={`text-[10px] font-mono font-bold ${indicatorValues.gap > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                        {indicatorValues.gap !== null ? indicatorValues.gap.toFixed(2) + '%' : '-'}
+                                    </span>
+                                </div>
+                                <div ref={gapChartContainerRef} className="flex-1 w-full" />
                             </div>
                             
-                            <div className="flex gap-2 overflow-x-auto pb-2 min-h-[30px]">
+                            {/* Watchlist Strip */}
+                            <div className="flex gap-2 overflow-x-auto pb-2 pt-2 min-h-[40px]">
                                 {watchlist.map(item => (
                                     <div key={item} className="relative group shrink-0">
                                         <button onClick={() => { setSymbol(item); setInputVal(item.replace(/\.TW(O)?/, '')); }} 
@@ -407,22 +410,42 @@
 
                         <aside className="hidden md:flex w-64 flex-col gap-4 overflow-y-auto">
                             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                                <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Icons.Bell /> 盤面數據</h3>
+                                <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Icons.Bell /> 戰情數值</h3>
                                 {currentValues ? (
                                     <div className="space-y-4">
-                                        <div className="bg-slate-50 p-2 rounded border border-slate-100">
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase">Close Price</p>
-                                            <p className="text-2xl font-mono font-black text-slate-800">${currentValues.price?.close?.toFixed(2)}</p>
+                                        <div className="bg-slate-50 p-3 rounded border border-slate-100">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Last Close</p>
+                                            <p className="text-3xl font-mono font-black text-slate-800">${currentValues.price?.close?.toFixed(2)}</p>
                                         </div>
-                                        <div className="text-xs text-slate-500 leading-relaxed bg-blue-50 p-3 rounded">
-                                            <p className="font-bold text-blue-700 mb-1">💡 雙軸指標說明</p>
-                                            <ul className="list-disc pl-4 mt-1 space-y-1">
-                                                <li><b>左軸 (實線)</b>：乖離率 %。<br/>紅多綠空，觀察趨勢強度。</li>
-                                                <li><b>右軸 (柱狀)</b>：GMMACD 值。<br/>半透明背景，顯示動能強弱。</li>
-                                            </ul>
+                                        
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between items-center text-xs border-b border-dashed pb-1">
+                                                <span className="text-slate-500 font-bold">成交量</span>
+                                                <span className="font-mono">{indicatorValues.vol ? indicatorValues.vol.toLocaleString() : '-'}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-xs border-b border-dashed pb-1">
+                                                <span className="text-slate-500 font-bold">GMMACD</span>
+                                                <span className={`font-mono font-bold ${indicatorValues.gmmacd > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                                    {indicatorValues.gmmacd ? indicatorValues.gmmacd.toFixed(3) : '-'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-xs">
+                                                <span className="text-slate-500 font-bold">乖離率</span>
+                                                <span className={`font-mono font-bold ${indicatorValues.gap > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                                    {indicatorValues.gap ? indicatorValues.gap.toFixed(2) + '%' : '-'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="text-[10px] text-slate-400 bg-slate-50 p-2 rounded leading-relaxed mt-4">
+                                            <p className="font-bold text-slate-600 mb-1">圖表指南：</p>
+                                            1. <b>K線</b>: 價格走勢<br/>
+                                            2. <b>Volume</b>: 成交量 (紅漲綠跌)<br/>
+                                            3. <b>GMMACD</b>: 多空動能 (柱狀)<br/>
+                                            4. <b>Gap%</b>: 趨勢乖離 (折線)
                                         </div>
                                     </div>
-                                ) : <div className="text-center py-10 opacity-40 text-xs">移動滑鼠查看數據</div>}
+                                ) : <div className="text-center py-10 opacity-40 text-xs">請移動滑鼠至圖表</div>}
                             </div>
                         </aside>
                     </main>
