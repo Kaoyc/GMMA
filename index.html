@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GMMA - Live Data</title>
+    <title>GMMA - Fast Load</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -38,7 +38,8 @@
             Wifi: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>,
             Chart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
             BarChart: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>,
-            Refresh: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
+            Refresh: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>,
+            Rocket: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.1 4 0 4 0"/><path d="M12 15v5s3.03-.55 4-2c1.1-1.62 0-4 0-4"/></svg>
         };
 
         const calculateEMA = (data, period) => {
@@ -72,7 +73,7 @@
             const [signal, setSignal] = useState({ type: 'NEUTRAL', text: '初始化' });
             const [status, setStatus] = useState('IDLE');
             const [errorMsg, setErrorMsg] = useState('');
-            const [refreshKey, setRefreshKey] = useState(0); // 用於觸發刷新
+            const [refreshKey, setRefreshKey] = useState(0); 
 
             const gmmaShortPeriods = [3, 5, 8, 10, 12, 15];
             const gmmaLongPeriods = [30, 35, 40, 45, 50, 60];
@@ -83,48 +84,53 @@
             }, []);
 
             const fetchSingleSymbol = async (symToTry) => {
-                // 加入時間戳記避免 Proxy 快取 (_t=Date.now())
                 const timestamp = Date.now();
+                // 使用多個 Proxy 進行競速，誰先回來就用誰的
                 const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symToTry}?range=2y&interval=1d&events=history&_t=${timestamp}`;
+                const encodedUrl = encodeURIComponent(targetUrl);
                 
                 const proxies = [
-                    { name: 'Proxy A', url: `https://corsproxy.io/?${encodeURIComponent(targetUrl)}` },
-                    { name: 'Proxy B', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}` }
+                    `https://corsproxy.io/?${encodedUrl}`,
+                    `https://api.allorigins.win/raw?url=${encodedUrl}`
                 ];
 
-                for (let proxy of proxies) {
-                    try {
-                        const response = await fetch(proxy.url);
-                        if (!response.ok) {
-                            if (response.status === 404) return null;
-                            continue;
-                        }
-                        const json = await response.json();
-                        const result = json.chart?.result?.[0];
-                        if (!result) return null;
-                        
-                        const quote = result.indicators.quote[0];
-                        const timestamps = result.timestamp;
-                        if (!timestamps || !quote || !quote.close) return null;
+                const fetchWithProxy = async (url) => {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const json = await response.json();
+                    const result = json.chart?.result?.[0];
+                    if (!result) throw new Error('結構錯誤');
+                    return result;
+                };
 
-                        const formattedData = [];
-                        for (let i = 0; i < timestamps.length; i++) {
-                            if (quote.open[i] == null || quote.close[i] == null) continue;
-                            const date = new Date(timestamps[i] * 1000);
-                            formattedData.push({
-                                time: date.toISOString().split('T')[0],
-                                open: Number(quote.open[i].toFixed(2)),
-                                high: Number(quote.high[i].toFixed(2)),
-                                low: Number(quote.low[i].toFixed(2)),
-                                close: Number(quote.close[i].toFixed(2)),
-                                volume: Number(quote.volume[i] || 0),
-                            });
-                        }
-                        if (formattedData.length === 0) return null;
-                        return formattedData;
-                    } catch (err) {}
+                try {
+                    // Promise.any: 平行發出請求，取最快成功的那個
+                    const result = await Promise.any(proxies.map(p => fetchWithProxy(p)));
+                    
+                    const quote = result.indicators.quote[0];
+                    const timestamps = result.timestamp;
+                    if (!timestamps || !quote || !quote.close) return null;
+
+                    const formattedData = [];
+                    for (let i = 0; i < timestamps.length; i++) {
+                        if (quote.open[i] == null || quote.close[i] == null) continue;
+                        const date = new Date(timestamps[i] * 1000);
+                        formattedData.push({
+                            time: date.toISOString().split('T')[0],
+                            open: Number(quote.open[i].toFixed(2)),
+                            high: Number(quote.high[i].toFixed(2)),
+                            low: Number(quote.low[i].toFixed(2)),
+                            close: Number(quote.close[i].toFixed(2)),
+                            volume: Number(quote.volume[i] || 0),
+                        });
+                    }
+                    if (formattedData.length === 0) return null;
+                    return formattedData;
+
+                } catch (err) {
+                    console.warn("All proxies failed or timeout", err);
+                    return null;
                 }
-                return null;
             };
 
             const smartFetch = async (inputSym) => {
@@ -136,6 +142,8 @@
                     candidates = [`${inputSym}.TW`, `${inputSym}.TWO`];
                 }
 
+                // 序列嘗試候選代號 (先上市，失敗才試上櫃)
+                // 每個代號的 fetch 內部是並行競速的
                 for (let sym of candidates) {
                     const data = await fetchSingleSymbol(sym);
                     if (data) {
@@ -157,7 +165,7 @@
                     if (data) initCharts(data);
                 };
                 loadData();
-            }, [symbol, refreshKey]); // 加入 refreshKey 依賴
+            }, [symbol, refreshKey]);
 
             const initCharts = (data) => {
                 const LWC = window.LightweightCharts;
@@ -299,7 +307,7 @@
                     });
                 });
 
-                // Initial Range (6 months)
+                // Initial Range
                 if (data.length > 0) {
                     const lastItem = data[data.length - 1];
                     const lastDate = new Date(lastItem.time);
@@ -323,7 +331,6 @@
                 setSymbol(cleanInput);
             };
 
-            // 觸發刷新
             const handleRefresh = () => {
                 setRefreshKey(prev => prev + 1);
             };
@@ -335,7 +342,7 @@
                             <div className="bg-purple-600 p-2 rounded-lg text-white"><Icons.TrendingUp /></div>
                             <div>
                                 <h1 className="text-lg font-bold leading-none">GMMA</h1>
-                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">LIVE 4-CHART</p>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-wider">FAST LOAD</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -345,7 +352,6 @@
                                     placeholder="代號 (如 2330)" />
                                 <div className="absolute left-2.5 top-2 text-slate-400"><Icons.Search /></div>
                             </form>
-                            {/* 刷新按鈕 */}
                             <button onClick={handleRefresh} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="刷新即時數據">
                                 <div className={status === 'LOADING' ? 'spin-once' : ''}><Icons.Refresh /></div>
                             </button>
@@ -361,9 +367,10 @@
                                     <h2 className="text-lg font-black flex items-center gap-2">
                                         {symbol} {status === 'SUCCESS' && <Icons.Wifi />}
                                     </h2>
-                                    {currentValues && (
-                                        <span className="font-mono font-bold text-slate-700">${currentValues.price?.close?.toFixed(2)}</span>
-                                    )}
+                                    <div className="flex gap-2 items-center">
+                                        {status === 'LOADING' && <span className="text-xs text-purple-500 animate-pulse font-bold flex items-center gap-1"><Icons.Rocket /> 加速連線中...</span>}
+                                        {currentValues && <span className="font-mono font-bold text-slate-700">${currentValues.price?.close?.toFixed(2)}</span>}
+                                    </div>
                                 </div>
                                 <div ref={mainChartContainerRef} className="flex-1 w-full" />
                             </div>
